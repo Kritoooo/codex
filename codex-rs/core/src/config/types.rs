@@ -422,6 +422,11 @@ pub struct StatusLine {
     #[serde(deserialize_with = "deserialize_status_line_command")]
     pub command: Vec<String>,
 
+    /// Whether to append footer hints onto the status line instead of rendering
+    /// them on a separate line. Defaults to `true`.
+    #[serde(default = "default_true")]
+    pub show_hints: bool,
+
     /// Minimum time (ms) between status line refreshes.
     #[serde(default = "default_status_line_update_interval_ms")]
     pub update_interval_ms: u64,

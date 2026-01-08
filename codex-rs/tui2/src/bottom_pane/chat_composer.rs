@@ -123,6 +123,7 @@ pub(crate) struct ChatComposer {
     footer_mode: FooterMode,
     footer_hint_override: Option<Vec<(String, String)>>,
     status_line_enabled: bool,
+    status_line_show_hints: bool,
     status_line: Option<Line<'static>>,
     context_window_percent: Option<i64>,
     context_window_used_tokens: Option<i64>,
@@ -180,6 +181,7 @@ impl ChatComposer {
             footer_mode: FooterMode::ShortcutSummary,
             footer_hint_override: None,
             status_line_enabled: false,
+            status_line_show_hints: true,
             status_line: None,
             context_window_percent: None,
             context_window_used_tokens: None,
@@ -312,6 +314,10 @@ impl ChatComposer {
 
     pub(crate) fn set_status_line_enabled(&mut self, enabled: bool) {
         self.status_line_enabled = enabled;
+    }
+
+    pub(crate) fn set_status_line_show_hints(&mut self, show_hints: bool) {
+        self.status_line_show_hints = show_hints;
     }
 
     pub(crate) fn set_status_line(&mut self, line: Option<Line<'static>>) {
@@ -1579,6 +1585,7 @@ impl ChatComposer {
             context_window_used_tokens: self.context_window_used_tokens,
             footer_hint_override: self.footer_hint_override.clone(),
             status_line_enabled: self.status_line_enabled,
+            status_line_show_hints: self.status_line_show_hints,
             status_line: self.status_line.clone(),
             transcript_scrolled: self.transcript_scrolled,
             transcript_selection_active: self.transcript_selection_active,
@@ -1599,18 +1606,18 @@ impl ChatComposer {
         }
     }
 
-    fn status_line_height(&self) -> u16 {
-        if self.status_line_enabled {
-            1
-        } else {
-            0
-        }
-    }
-
     fn custom_footer_height(&self) -> Option<u16> {
         self.footer_hint_override.as_ref().map(|items| {
             let hint_height = if items.is_empty() { 0 } else { 1 };
-            hint_height + self.status_line_height()
+            if !self.status_line_enabled {
+                return hint_height;
+            }
+
+            if self.status_line_show_hints {
+                hint_height.max(1)
+            } else {
+                hint_height + 1
+            }
         })
     }
 

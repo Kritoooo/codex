@@ -152,7 +152,10 @@ async fn run_status_line_command(
             return StatusLineUpdate::Failed;
         }
         Err(_) => {
-            warn!("status line command timed out after {}ms", timeout_duration.as_millis());
+            warn!(
+                "status line command timed out after {}ms",
+                timeout_duration.as_millis()
+            );
             return StatusLineUpdate::Failed;
         }
     };
@@ -168,6 +171,10 @@ async fn run_status_line_command(
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let line = stdout.lines().next().map(|s| s.to_string()).filter(|s| !s.is_empty());
+    let line = stdout
+        .lines()
+        .next()
+        .map(|s| s.to_string())
+        .filter(|s| !s.is_empty());
     StatusLineUpdate::Updated(line)
 }

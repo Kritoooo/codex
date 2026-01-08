@@ -5,8 +5,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use codex_app_server_protocol::AuthMode;
 use codex_ansi_escape::ansi_escape_line;
+use codex_app_server_protocol::AuthMode;
 use codex_backend_client::Client as BackendClient;
 use codex_core::config::Config;
 use codex_core::config::ConstraintResult;
@@ -1335,6 +1335,11 @@ impl ChatWidget {
             .tui_status_line
             .clone()
             .and_then(StatusLineManager::new);
+        let status_line_show_hints = config
+            .tui_status_line
+            .as_ref()
+            .map(|status_line| status_line.show_hints)
+            .unwrap_or(true);
         let mut bottom_pane = BottomPane::new(BottomPaneParams {
             frame_requester: frame_requester.clone(),
             app_event_tx: app_event_tx.clone(),
@@ -1348,6 +1353,7 @@ impl ChatWidget {
         if status_line.is_some() {
             bottom_pane.set_status_line_enabled(true);
         }
+        bottom_pane.set_status_line_show_hints(status_line_show_hints);
 
         let mut widget = Self {
             app_event_tx: app_event_tx.clone(),
@@ -1428,6 +1434,11 @@ impl ChatWidget {
             .tui_status_line
             .clone()
             .and_then(StatusLineManager::new);
+        let status_line_show_hints = config
+            .tui_status_line
+            .as_ref()
+            .map(|status_line| status_line.show_hints)
+            .unwrap_or(true);
         let mut bottom_pane = BottomPane::new(BottomPaneParams {
             frame_requester: frame_requester.clone(),
             app_event_tx: app_event_tx.clone(),
@@ -1441,6 +1452,7 @@ impl ChatWidget {
         if status_line.is_some() {
             bottom_pane.set_status_line_enabled(true);
         }
+        bottom_pane.set_status_line_show_hints(status_line_show_hints);
 
         let mut widget = Self {
             app_event_tx: app_event_tx.clone(),

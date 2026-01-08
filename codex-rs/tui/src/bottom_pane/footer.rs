@@ -25,6 +25,7 @@ pub(crate) struct FooterProps {
     pub(crate) context_window_used_tokens: Option<i64>,
     pub(crate) footer_hint_override: Option<Vec<(String, String)>>,
     pub(crate) status_line_enabled: bool,
+    pub(crate) status_line_show_hints: bool,
     pub(crate) status_line: Option<Line<'static>>,
 }
 
@@ -150,11 +151,24 @@ fn footer_lines(props: &FooterProps) -> Vec<Line<'static>> {
         }
     };
     if props.status_line_enabled {
-        let line = props
-            .status_line
-            .clone()
-            .unwrap_or_else(|| Line::from(""));
-        lines.push(dim_status_line_if_unstyled(line));
+        let status_line = dim_status_line_if_unstyled(
+            props.status_line.clone().unwrap_or_else(|| Line::from("")),
+        );
+        let status_line_has_content = status_line.width() > 0;
+        if props.status_line_show_hints {
+            if lines.is_empty() {
+                lines.push(status_line);
+            } else if status_line_has_content {
+                let line = lines.last_mut().expect("footer lines is non-empty");
+                if line.width() > 0 {
+                    line.push_span(" · ".dim());
+                }
+                line.extend(status_line.spans);
+            }
+        } else {
+            lines.clear();
+            lines.push(status_line);
+        }
     }
     lines
 }
@@ -497,6 +511,7 @@ mod tests {
                 context_window_used_tokens: None,
                 footer_hint_override: None,
                 status_line_enabled: false,
+                status_line_show_hints: true,
                 status_line: None,
             },
         );
@@ -512,6 +527,7 @@ mod tests {
                 context_window_used_tokens: None,
                 footer_hint_override: None,
                 status_line_enabled: false,
+                status_line_show_hints: true,
                 status_line: None,
             },
         );
@@ -527,6 +543,7 @@ mod tests {
                 context_window_used_tokens: None,
                 footer_hint_override: None,
                 status_line_enabled: false,
+                status_line_show_hints: true,
                 status_line: None,
             },
         );
@@ -542,6 +559,7 @@ mod tests {
                 context_window_used_tokens: None,
                 footer_hint_override: None,
                 status_line_enabled: false,
+                status_line_show_hints: true,
                 status_line: None,
             },
         );
@@ -557,6 +575,7 @@ mod tests {
                 context_window_used_tokens: None,
                 footer_hint_override: None,
                 status_line_enabled: false,
+                status_line_show_hints: true,
                 status_line: None,
             },
         );
@@ -572,6 +591,7 @@ mod tests {
                 context_window_used_tokens: None,
                 footer_hint_override: None,
                 status_line_enabled: false,
+                status_line_show_hints: true,
                 status_line: None,
             },
         );
@@ -587,6 +607,7 @@ mod tests {
                 context_window_used_tokens: None,
                 footer_hint_override: None,
                 status_line_enabled: false,
+                status_line_show_hints: true,
                 status_line: None,
             },
         );
@@ -602,6 +623,7 @@ mod tests {
                 context_window_used_tokens: Some(123_456),
                 footer_hint_override: None,
                 status_line_enabled: false,
+                status_line_show_hints: true,
                 status_line: None,
             },
         );
