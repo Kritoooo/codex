@@ -29,6 +29,7 @@ use std::time::Duration;
 use std::time::Instant;
 
 use crate::version::CODEX_CLI_VERSION;
+use codex_ansi_escape::ansi_escape_line;
 use codex_app_server_protocol::AuthMode;
 use codex_backend_client::Client as BackendClient;
 use codex_core::config::Config;
@@ -165,6 +166,9 @@ use crate::render::renderable::RenderableExt;
 use crate::render::renderable::RenderableItem;
 use crate::slash_command::SlashCommand;
 use crate::status::RateLimitSnapshotDisplay;
+use crate::status_line::StatusLineManager;
+use crate::status_line::StatusLineRequest;
+use crate::status_line::StatusLineUpdate;
 use crate::text_formatting::truncate_text;
 use crate::tui::FrameRequester;
 mod interrupts;
@@ -416,6 +420,7 @@ pub(crate) struct ChatWidget {
     session_header: SessionHeader,
     initial_user_message: Option<UserMessage>,
     token_info: Option<TokenUsageInfo>,
+    status_line: Option<StatusLineManager>,
     rate_limit_snapshot: Option<RateLimitSnapshotDisplay>,
     plan_type: Option<PlanType>,
     rate_limit_warnings: RateLimitWarningState,
@@ -927,6 +932,49 @@ impl ChatWidget {
                     self.token_info = None;
                 }
             }
+        }
+    }
+
+    pub(crate) fn maybe_refresh_status_line(&mut self) {
+        let request = self.status_line_request();
+        if let Some(manager) = self.status_line.as_mut() {
+            manager.maybe_request(request, self.app_event_tx.clone());
+        }
+    }
+
+    pub(crate) fn on_status_line_update(&mut self, update: StatusLineUpdate) {
+        if let Some(manager) = self.status_line.as_mut() {
+            manager.mark_complete();
+        }
+
+        match update {
+            StatusLineUpdate::Updated(line) => {
+                let rendered = line.map(|text| ansi_escape_line(&text));
+                self.bottom_pane.set_status_line(rendered);
+            }
+            StatusLineUpdate::Failed => {}
+        }
+    }
+
+    fn status_line_request(&self) -> StatusLineRequest {
+        let context_window_percent = self
+            .token_info
+            .as_ref()
+            .and_then(|info| self.context_remaining_percent(info));
+        let context_window_used_tokens = self
+            .token_info
+            .as_ref()
+            .and_then(|info| self.context_used_tokens(info, context_window_percent.is_some()));
+
+        StatusLineRequest {
+            model: self.model.clone(),
+            model_provider: self.config.model_provider_id.clone(),
+            cwd: self.config.cwd.clone(),
+            task_running: self.bottom_pane.is_task_running(),
+            review_mode: self.is_review_mode,
+            context_window_percent,
+            context_window_used_tokens,
+            token_usage: self.token_info.clone(),
         }
     }
 
@@ -1822,6 +1870,29 @@ impl ChatWidget {
         let mut rng = rand::rng();
         let placeholder = PLACEHOLDERS[rng.random_range(0..PLACEHOLDERS.len())].to_string();
         let codex_op_tx = spawn_agent(config.clone(), app_event_tx.clone(), thread_manager);
+        let status_line = config
+            .tui_status_line
+            .clone()
+            .and_then(StatusLineManager::new);
+        let status_line_show_hints = config
+            .tui_status_line
+            .as_ref()
+            .map(|status_line| status_line.show_hints)
+            .unwrap_or(true);
+        let mut bottom_pane = BottomPane::new(BottomPaneParams {
+            frame_requester: frame_requester.clone(),
+            app_event_tx: app_event_tx.clone(),
+            has_input_focus: true,
+            enhanced_keys_supported,
+            placeholder_text: placeholder,
+            disable_paste_burst: config.disable_paste_burst,
+            animations_enabled: config.animations,
+            skills: None,
+        });
+        if status_line.is_some() {
+            bottom_pane.set_status_line_enabled(true);
+        }
+        bottom_pane.set_status_line_show_hints(status_line_show_hints);
 
         let model_for_header = model.unwrap_or_else(|| DEFAULT_MODEL_DISPLAY_NAME.to_string());
         let stored_collaboration_mode = if config.features.enabled(Feature::CollaborationModes) {
@@ -1850,16 +1921,7 @@ impl ChatWidget {
             app_event_tx: app_event_tx.clone(),
             frame_requester: frame_requester.clone(),
             codex_op_tx,
-            bottom_pane: BottomPane::new(BottomPaneParams {
-                frame_requester,
-                app_event_tx,
-                has_input_focus: true,
-                enhanced_keys_supported,
-                placeholder_text: placeholder,
-                disable_paste_burst: config.disable_paste_burst,
-                animations_enabled: config.animations,
-                skills: None,
-            }),
+            bottom_pane,
             active_cell,
             active_cell_revision: 0,
             config,
@@ -1869,6 +1931,7 @@ impl ChatWidget {
             session_header: SessionHeader::new(model_for_header),
             initial_user_message,
             token_info: None,
+            status_line,
             rate_limit_snapshot: None,
             plan_type: None,
             rate_limit_warnings: RateLimitWarningState::default(),
@@ -1943,6 +2006,29 @@ impl ChatWidget {
 
         let codex_op_tx =
             spawn_agent_from_existing(conversation, session_configured, app_event_tx.clone());
+        let status_line = config
+            .tui_status_line
+            .clone()
+            .and_then(StatusLineManager::new);
+        let status_line_show_hints = config
+            .tui_status_line
+            .as_ref()
+            .map(|status_line| status_line.show_hints)
+            .unwrap_or(true);
+        let mut bottom_pane = BottomPane::new(BottomPaneParams {
+            frame_requester: frame_requester.clone(),
+            app_event_tx: app_event_tx.clone(),
+            has_input_focus: true,
+            enhanced_keys_supported,
+            placeholder_text: placeholder,
+            disable_paste_burst: config.disable_paste_burst,
+            animations_enabled: config.animations,
+            skills: None,
+        });
+        if status_line.is_some() {
+            bottom_pane.set_status_line_enabled(true);
+        }
+        bottom_pane.set_status_line_show_hints(status_line_show_hints);
 
         let stored_collaboration_mode = if config.features.enabled(Feature::CollaborationModes) {
             collaboration_modes::default_mode(models_manager.as_ref()).unwrap_or_else(|| {
@@ -1964,16 +2050,7 @@ impl ChatWidget {
             app_event_tx: app_event_tx.clone(),
             frame_requester: frame_requester.clone(),
             codex_op_tx,
-            bottom_pane: BottomPane::new(BottomPaneParams {
-                frame_requester,
-                app_event_tx,
-                has_input_focus: true,
-                enhanced_keys_supported,
-                placeholder_text: placeholder,
-                disable_paste_burst: config.disable_paste_burst,
-                animations_enabled: config.animations,
-                skills: None,
-            }),
+            bottom_pane,
             active_cell: None,
             active_cell_revision: 0,
             config,
@@ -1983,6 +2060,7 @@ impl ChatWidget {
             session_header: SessionHeader::new(header_model),
             initial_user_message,
             token_info: None,
+            status_line,
             rate_limit_snapshot: None,
             plan_type: None,
             rate_limit_warnings: RateLimitWarningState::default(),

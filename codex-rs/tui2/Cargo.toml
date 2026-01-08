@@ -76,6 +76,7 @@ tempfile = { workspace = true }
 textwrap = { workspace = true }
 tui-scrollbar = { workspace = true }
 tokio = { workspace = true, features = [
+    "io-util",
     "io-std",
     "macros",
     "process",

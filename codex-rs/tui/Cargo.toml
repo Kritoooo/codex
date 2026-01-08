@@ -73,6 +73,7 @@ tempfile = { workspace = true }
 textwrap = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = [
+    "io-util",
     "io-std",
     "macros",
     "process",

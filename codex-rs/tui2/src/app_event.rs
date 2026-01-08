@@ -19,6 +19,7 @@ use codex_protocol::openai_models::ModelPreset;
 
 use crate::bottom_pane::ApprovalRequest;
 use crate::history_cell::HistoryCell;
+use crate::status_line::StatusLineUpdate;
 
 use codex_core::protocol::AskForApproval;
 use codex_core::protocol::SandboxPolicy;
@@ -85,6 +86,9 @@ pub(crate) enum AppEvent {
 
     /// Result of computing a `/diff` command.
     DiffResult(String),
+
+    /// Result of a status line refresh.
+    StatusLineUpdated(StatusLineUpdate),
 
     InsertHistoryCell(Box<dyn HistoryCell>),
 
