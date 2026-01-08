@@ -14,6 +14,7 @@ use serde::Deserialize;
 use serde::Deserializer;
 use serde::Serialize;
 use serde::de::Error as SerdeError;
+use shlex::split as shlex_split;
 
 pub const DEFAULT_OTEL_ENVIRONMENT: &str = "dev";
 
@@ -394,6 +395,50 @@ impl Default for ScrollInputMode {
     }
 }
 
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum StatusLineCommand {
+    String(String),
+    Vec(Vec<String>),
+}
+
+fn deserialize_status_line_command<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    match StatusLineCommand::deserialize(deserializer)? {
+        StatusLineCommand::String(raw) => shlex_split(&raw).ok_or_else(|| {
+            SerdeError::custom("tui.status_line.command must be a valid shell-like string")
+        }),
+        StatusLineCommand::Vec(items) => Ok(items),
+    }
+}
+
+/// Configuration for an optional custom status line command in the TUI.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct StatusLine {
+    /// Command to execute to render the status line. Accepts either a string
+    /// (shell-like) or an argv array.
+    #[serde(deserialize_with = "deserialize_status_line_command")]
+    pub command: Vec<String>,
+
+    /// Minimum time (ms) between status line refreshes.
+    #[serde(default = "default_status_line_update_interval_ms")]
+    pub update_interval_ms: u64,
+
+    /// Timeout (ms) for the status line command.
+    #[serde(default = "default_status_line_timeout_ms")]
+    pub timeout_ms: u64,
+}
+
+const fn default_status_line_update_interval_ms() -> u64 {
+    300
+}
+
+const fn default_status_line_timeout_ms() -> u64 {
+    1000
+}
+
 /// Collection of settings that are specific to the TUI.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
 pub struct Tui {
@@ -514,6 +559,10 @@ pub struct Tui {
     /// wheel and trackpad input.
     #[serde(default)]
     pub scroll_invert: bool,
+
+    /// Optional status line command for the TUI footer.
+    #[serde(default)]
+    pub status_line: Option<StatusLine>,
 }
 
 const fn default_true() -> bool {

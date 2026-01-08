@@ -15,6 +15,7 @@ use crossterm::event::KeyCode;
 use crossterm::event::KeyEvent;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
+use ratatui::text::Line;
 use std::time::Duration;
 
 mod approval_overlay;
@@ -379,6 +380,16 @@ impl BottomPane {
         self.context_window_used_tokens = used_tokens;
         self.composer
             .set_context_window(percent, self.context_window_used_tokens);
+        self.request_redraw();
+    }
+
+    pub(crate) fn set_status_line_enabled(&mut self, enabled: bool) {
+        self.composer.set_status_line_enabled(enabled);
+        self.request_redraw();
+    }
+
+    pub(crate) fn set_status_line(&mut self, line: Option<Line<'static>>) {
+        self.composer.set_status_line(line);
         self.request_redraw();
     }
 

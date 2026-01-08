@@ -11,7 +11,6 @@ use ratatui::layout::Constraint;
 use ratatui::layout::Layout;
 use ratatui::layout::Margin;
 use ratatui::layout::Rect;
-use ratatui::style::Style;
 use ratatui::style::Stylize;
 use ratatui::text::Line;
 use ratatui::text::Span;
@@ -120,6 +119,8 @@ pub(crate) struct ChatComposer {
     custom_prompts: Vec<CustomPrompt>,
     footer_mode: FooterMode,
     footer_hint_override: Option<Vec<(String, String)>>,
+    status_line_enabled: bool,
+    status_line: Option<Line<'static>>,
     context_window_percent: Option<i64>,
     context_window_used_tokens: Option<i64>,
     transcript_scrolled: bool,
@@ -173,6 +174,8 @@ impl ChatComposer {
             custom_prompts: Vec::new(),
             footer_mode: FooterMode::ShortcutSummary,
             footer_hint_override: None,
+            status_line_enabled: false,
+            status_line: None,
             context_window_percent: None,
             context_window_used_tokens: None,
             transcript_scrolled: false,
@@ -196,7 +199,7 @@ impl ChatComposer {
         let footer_props = self.footer_props();
         let footer_hint_height = self
             .custom_footer_height()
-            .unwrap_or_else(|| footer_height(footer_props));
+            .unwrap_or_else(|| footer_height(&footer_props));
         let footer_spacing = Self::footer_spacing(footer_hint_height);
         let footer_total_height = footer_hint_height + footer_spacing;
         let popup_constraint = match &self.active_popup {
@@ -300,6 +303,14 @@ impl ChatComposer {
     /// `None` restores the default shortcut footer.
     pub(crate) fn set_footer_hint_override(&mut self, items: Option<Vec<(String, String)>>) {
         self.footer_hint_override = items;
+    }
+
+    pub(crate) fn set_status_line_enabled(&mut self, enabled: bool) {
+        self.status_line_enabled = enabled;
+    }
+
+    pub(crate) fn set_status_line(&mut self, line: Option<Line<'static>>) {
+        self.status_line = line;
     }
 
     /// Replace the entire composer content with `text` and reset cursor.
@@ -1557,6 +1568,9 @@ impl ChatComposer {
             is_task_running: self.is_task_running,
             context_window_percent: self.context_window_percent,
             context_window_used_tokens: self.context_window_used_tokens,
+            footer_hint_override: self.footer_hint_override.clone(),
+            status_line_enabled: self.status_line_enabled,
+            status_line: self.status_line.clone(),
             transcript_scrolled: self.transcript_scrolled,
             transcript_selection_active: self.transcript_selection_active,
             transcript_scroll_position: self.transcript_scroll_position,
@@ -1576,10 +1590,19 @@ impl ChatComposer {
         }
     }
 
+    fn status_line_height(&self) -> u16 {
+        if self.status_line_enabled {
+            1
+        } else {
+            0
+        }
+    }
+
     fn custom_footer_height(&self) -> Option<u16> {
-        self.footer_hint_override
-            .as_ref()
-            .map(|items| if items.is_empty() { 0 } else { 1 })
+        self.footer_hint_override.as_ref().map(|items| {
+            let hint_height = if items.is_empty() { 0 } else { 1 };
+            hint_height + self.status_line_height()
+        })
     }
 
     /// Update the footer's view of transcript scroll state for the inline viewport.
@@ -1853,7 +1876,7 @@ impl Renderable for ChatComposer {
         let footer_props = self.footer_props();
         let footer_hint_height = self
             .custom_footer_height()
-            .unwrap_or_else(|| footer_height(footer_props));
+            .unwrap_or_else(|| footer_height(&footer_props));
         let footer_spacing = Self::footer_spacing(footer_hint_height);
         let footer_total_height = footer_hint_height + footer_spacing;
         const COLS_WITH_MARGIN: u16 = LIVE_PREFIX_COLS + 1;
@@ -1884,7 +1907,7 @@ impl Renderable for ChatComposer {
                 let footer_props = self.footer_props();
                 let custom_height = self.custom_footer_height();
                 let footer_hint_height =
-                    custom_height.unwrap_or_else(|| footer_height(footer_props));
+                    custom_height.unwrap_or_else(|| footer_height(&footer_props));
                 let footer_spacing = Self::footer_spacing(footer_hint_height);
                 let hint_rect = if footer_spacing > 0 && footer_hint_height > 0 {
                     let [_, hint_rect] = Layout::vertical([
@@ -1896,27 +1919,7 @@ impl Renderable for ChatComposer {
                 } else {
                     popup_rect
                 };
-                if let Some(items) = self.footer_hint_override.as_ref() {
-                    if !items.is_empty() {
-                        let mut spans = Vec::with_capacity(items.len() * 4);
-                        for (idx, (key, label)) in items.iter().enumerate() {
-                            spans.push(" ".into());
-                            spans.push(Span::styled(key.clone(), Style::default().bold()));
-                            spans.push(format!(" {label}").into());
-                            if idx + 1 != items.len() {
-                                spans.push("   ".into());
-                            }
-                        }
-                        let mut custom_rect = hint_rect;
-                        if custom_rect.width > 2 {
-                            custom_rect.x += 2;
-                            custom_rect.width = custom_rect.width.saturating_sub(2);
-                        }
-                        Line::from(spans).render_ref(custom_rect, buf);
-                    }
-                } else {
-                    render_footer(hint_rect, buf, footer_props);
-                }
+                render_footer(hint_rect, buf, &footer_props);
             }
         }
         let style = user_message_style();
@@ -2079,7 +2082,7 @@ mod tests {
         );
         setup(&mut composer);
         let footer_props = composer.footer_props();
-        let footer_lines = footer_height(footer_props);
+        let footer_lines = footer_height(&footer_props);
         let footer_spacing = ChatComposer::footer_spacing(footer_lines);
         let height = footer_lines + footer_spacing + 8;
         let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
