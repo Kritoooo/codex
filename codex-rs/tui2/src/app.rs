@@ -539,6 +539,7 @@ impl App {
         };
 
         chat_widget.maybe_prompt_windows_sandbox_enable();
+        chat_widget.maybe_refresh_status_line();
 
         let file_search = FileSearchManager::new(config.cwd.clone(), app_event_tx.clone());
         #[cfg(not(debug_assertions))]
@@ -1672,6 +1673,9 @@ impl App {
                 ));
                 tui.frame_requester().schedule_frame();
             }
+            AppEvent::StatusLineUpdated(update) => {
+                self.chat_widget.on_status_line_update(update);
+            }
             AppEvent::StartFileSearch(query) => {
                 if !query.is_empty() {
                     self.file_search.on_user_query(query);
@@ -2086,6 +2090,7 @@ impl App {
                 }
             },
         }
+        self.chat_widget.maybe_refresh_status_line();
         Ok(AppRunControl::Continue)
     }
 

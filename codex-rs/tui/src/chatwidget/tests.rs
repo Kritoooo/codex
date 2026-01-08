@@ -408,6 +408,7 @@ async fn make_chatwidget_manual(
         session_header: SessionHeader::new(resolved_model),
         initial_user_message: None,
         token_info: None,
+        status_line: None,
         rate_limit_snapshot: None,
         plan_type: None,
         rate_limit_warnings: RateLimitWarningState::default(),

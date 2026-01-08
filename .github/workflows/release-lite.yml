@@ -1,0 +1,165 @@
+name: release-lite
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version (e.g. 0.79.1)"
+        required: true
+
+jobs:
+  build-linux-x64:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.90
+        with:
+          targets: x86_64-unknown-linux-musl
+      - name: Install build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+      - name: Build codex (linux x64)
+        run: |
+          cd codex-rs
+          cargo build --release --target x86_64-unknown-linux-musl --bin codex
+      - name: Stage vendor (linux x64)
+        run: |
+          mkdir -p vendor/x86_64-unknown-linux-musl/codex
+          cp codex-rs/target/x86_64-unknown-linux-musl/release/codex \
+            vendor/x86_64-unknown-linux-musl/codex/codex
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vendor-linux-x64
+          path: vendor
+
+  build-linux-arm64:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.90
+        with:
+          targets: aarch64-unknown-linux-musl
+      - name: Install build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+      - name: Build codex (linux arm64)
+        run: |
+          cd codex-rs
+          cargo build --release --target aarch64-unknown-linux-musl --bin codex
+      - name: Stage vendor (linux arm64)
+        run: |
+          mkdir -p vendor/aarch64-unknown-linux-musl/codex
+          cp codex-rs/target/aarch64-unknown-linux-musl/release/codex \
+            vendor/aarch64-unknown-linux-musl/codex/codex
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vendor-linux-arm64
+          path: vendor
+
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.90
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - name: Build codex (macOS arm64 + x64)
+        run: |
+          cd codex-rs
+          cargo build --release --target aarch64-apple-darwin --bin codex
+          cargo build --release --target x86_64-apple-darwin --bin codex
+      - name: Stage vendor (macOS)
+        run: |
+          mkdir -p vendor/aarch64-apple-darwin/codex
+          cp codex-rs/target/aarch64-apple-darwin/release/codex \
+            vendor/aarch64-apple-darwin/codex/codex
+
+          mkdir -p vendor/x86_64-apple-darwin/codex
+          cp codex-rs/target/x86_64-apple-darwin/release/codex \
+            vendor/x86_64-apple-darwin/codex/codex
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vendor-macos
+          path: vendor
+
+  build-windows-x64:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.90
+        with:
+          targets: x86_64-pc-windows-msvc
+      - name: Build codex (windows x64)
+        run: |
+          cd codex-rs
+          cargo build --release --target x86_64-pc-windows-msvc --bin codex --bin codex-windows-sandbox-setup --bin codex-command-runner
+      - name: Stage vendor (windows x64)
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force vendor/x86_64-pc-windows-msvc/codex | Out-Null
+          Copy-Item codex-rs/target/x86_64-pc-windows-msvc/release/codex.exe vendor/x86_64-pc-windows-msvc/codex/codex.exe
+          Copy-Item codex-rs/target/x86_64-pc-windows-msvc/release/codex-windows-sandbox-setup.exe vendor/x86_64-pc-windows-msvc/codex/codex-windows-sandbox-setup.exe
+          Copy-Item codex-rs/target/x86_64-pc-windows-msvc/release/codex-command-runner.exe vendor/x86_64-pc-windows-msvc/codex/codex-command-runner.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vendor-windows-x64
+          path: vendor
+
+  fetch-rg:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch ripgrep binaries
+        run: |
+          python3 codex-cli/scripts/install_native_deps.py --component rg /tmp/rg-vendor
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vendor-rg
+          path: /tmp/rg-vendor/vendor
+
+  publish:
+    runs-on: ubuntu-24.04
+    needs:
+      - build-linux-x64
+      - build-linux-arm64
+      - build-macos
+      - build-windows-x64
+      - fetch-rg
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/artifacts
+
+      - name: Assemble vendor tree
+        run: |
+          rm -rf codex-cli/vendor
+          mkdir -p codex-cli/vendor
+
+          cp -R /tmp/artifacts/vendor-rg/* codex-cli/vendor/
+          cp -R /tmp/artifacts/vendor-linux-x64/* codex-cli/vendor/
+          cp -R /tmp/artifacts/vendor-linux-arm64/* codex-cli/vendor/
+          cp -R /tmp/artifacts/vendor-macos/* codex-cli/vendor/
+          cp -R /tmp/artifacts/vendor-windows-x64/* codex-cli/vendor/
+
+      - name: Build npm tarball
+        run: |
+          python3 codex-cli/scripts/build_npm_package.py \
+            --package codex \
+            --release-version "${{ inputs.version }}" \
+            --vendor-src codex-cli/vendor \
+            --pack-output dist/npm/codex-npm-${{ inputs.version }}.tgz
+
+      - name: Publish to npm
+        run: npm publish dist/npm/codex-npm-${{ inputs.version }}.tgz --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
