@@ -65,6 +65,7 @@ pub mod types;
 pub use constraint::Constrained;
 pub use constraint::ConstraintError;
 pub use constraint::ConstraintResult;
+pub use types::StatusLine;
 
 pub use service::ConfigService;
 pub use service::ConfigServiceError;
@@ -235,6 +236,9 @@ pub struct Config {
     /// This is the same `tui.scroll_invert` value from `config.toml` (see [`Tui`]) and is applied
     /// consistently to both mouse wheels and trackpads.
     pub tui_scroll_invert: bool,
+
+    /// Custom TUI status line configuration, if any.
+    pub tui_status_line: Option<StatusLine>,
 
     /// The directory that should be treated as the current working directory
     /// for the session. All relative paths inside the business-logic layer are
@@ -1431,6 +1435,7 @@ impl Config {
                 .as_ref()
                 .and_then(|t| t.scroll_wheel_like_max_duration_ms),
             tui_scroll_invert: cfg.tui.as_ref().map(|t| t.scroll_invert).unwrap_or(false),
+            tui_status_line: cfg.tui.as_ref().and_then(|t| t.status_line.clone()),
             otel: {
                 let t: OtelConfigToml = cfg.otel.unwrap_or_default();
                 let log_user_prompt = t.log_user_prompt.unwrap_or(false);
@@ -1618,6 +1623,7 @@ persistence = "none"
                 scroll_wheel_tick_detect_max_ms: None,
                 scroll_wheel_like_max_duration_ms: None,
                 scroll_invert: false,
+                status_line: None,
             }
         );
     }
@@ -3233,6 +3239,7 @@ model_verbosity = "high"
                 tui_scroll_wheel_tick_detect_max_ms: None,
                 tui_scroll_wheel_like_max_duration_ms: None,
                 tui_scroll_invert: false,
+                tui_status_line: None,
                 otel: OtelConfig::default(),
             },
             o3_profile_config
@@ -3317,6 +3324,7 @@ model_verbosity = "high"
             tui_scroll_wheel_tick_detect_max_ms: None,
             tui_scroll_wheel_like_max_duration_ms: None,
             tui_scroll_invert: false,
+            tui_status_line: None,
             otel: OtelConfig::default(),
         };
 
@@ -3416,6 +3424,7 @@ model_verbosity = "high"
             tui_scroll_wheel_tick_detect_max_ms: None,
             tui_scroll_wheel_like_max_duration_ms: None,
             tui_scroll_invert: false,
+            tui_status_line: None,
             otel: OtelConfig::default(),
         };
 
@@ -3501,6 +3510,7 @@ model_verbosity = "high"
             tui_scroll_wheel_tick_detect_max_ms: None,
             tui_scroll_wheel_like_max_duration_ms: None,
             tui_scroll_invert: false,
+            tui_status_line: None,
             otel: OtelConfig::default(),
         };
 
