@@ -250,23 +250,37 @@ def copy_native_binaries(
     components_set = {component for component in components if component in COMPONENT_DEST_DIR}
     if not components_set:
         return
+    primary_component = components[0] if components else None
+    primary_dir_name = COMPONENT_DEST_DIR.get(primary_component) if primary_component else None
 
     vendor_dest = staging_dir / "vendor"
     if vendor_dest.exists():
         shutil.rmtree(vendor_dest)
     vendor_dest.mkdir(parents=True, exist_ok=True)
 
+    targets_copied = 0
     for target_dir in vendor_src.iterdir():
         if not target_dir.is_dir():
             continue
 
+        if primary_dir_name is not None:
+            primary_dir = target_dir / primary_dir_name
+            if not primary_dir.exists():
+                print(
+                    f"Skipping {target_dir.name}: missing primary component "
+                    f"'{primary_component}' in {primary_dir}"
+                )
+                continue
+
+        target_components = set(components_set)
         if "windows" in target_dir.name:
-            components_set.update(WINDOWS_ONLY_COMPONENTS.get(package, []))
+            target_components.update(WINDOWS_ONLY_COMPONENTS.get(package, []))
 
         dest_target_dir = vendor_dest / target_dir.name
         dest_target_dir.mkdir(parents=True, exist_ok=True)
+        targets_copied += 1
 
-        for component in components_set:
+        for component in target_components:
             dest_dir_name = COMPONENT_DEST_DIR.get(component)
             if dest_dir_name is None:
                 continue
@@ -281,6 +295,11 @@ def copy_native_binaries(
             if dest_component_dir.exists():
                 shutil.rmtree(dest_component_dir)
             shutil.copytree(src_component_dir, dest_component_dir)
+
+    if primary_dir_name is not None and targets_copied == 0:
+        raise RuntimeError(
+            f"No vendor targets contained the primary component '{primary_component}'."
+        )
 
 
 def run_npm_pack(staging_dir: Path, output_path: Path) -> Path:
