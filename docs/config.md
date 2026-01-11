@@ -39,9 +39,9 @@ command = ["bash", "-lc", "~/.codex/statusline.sh"]
 ```
 
 The command receives a JSON object on stdin describing the current session
-(`model`, `model_provider`, `cwd`, `git_branch`, `task_running`, `review_mode`,
-`context_window_percent`, `context_window_used_tokens`, `token_usage`), and should
-print a single line to stdout (ANSI colors supported).
+(`session_id`, `model`, `model_provider`, `cwd`, `git_branch`, `task_running`,
+`review_mode`, `context_window_percent`, `context_window_used_tokens`,
+`token_usage`), and should print a single line to stdout (ANSI colors supported).
 
 By default, footer hints are appended to the status line so the footer stays
 single-line when a status line command is enabled. Set `show_hints = false` to

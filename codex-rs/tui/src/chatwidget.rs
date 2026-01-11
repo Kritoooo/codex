@@ -674,6 +674,7 @@ impl ChatWidget {
             .and_then(|info| self.context_used_tokens(info, context_window_percent.is_some()));
 
         StatusLineRequest {
+            session_id: self.thread_id,
             model: self.model.clone(),
             model_provider: self.config.model_provider_id.clone(),
             cwd: self.config.cwd.clone(),
