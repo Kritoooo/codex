@@ -6,6 +6,7 @@ use std::time::Instant;
 use codex_core::config::StatusLine;
 use codex_core::git_info::current_branch_name;
 use codex_core::protocol::TokenUsageInfo;
+use codex_protocol::ThreadId;
 use serde::Serialize;
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
@@ -23,6 +24,7 @@ pub(crate) enum StatusLineUpdate {
 
 #[derive(Clone, Debug)]
 pub(crate) struct StatusLineRequest {
+    pub(crate) session_id: Option<ThreadId>,
     pub(crate) model: String,
     pub(crate) model_provider: String,
     pub(crate) cwd: PathBuf,
@@ -84,6 +86,7 @@ impl StatusLineManager {
 
 #[derive(Serialize)]
 struct StatusLineInput {
+    session_id: Option<ThreadId>,
     model: String,
     model_provider: String,
     cwd: String,
@@ -102,6 +105,7 @@ async fn run_status_line_command(
 ) -> StatusLineUpdate {
     let git_branch = current_branch_name(&request.cwd).await;
     let input = StatusLineInput {
+        session_id: request.session_id,
         model: request.model,
         model_provider: request.model_provider,
         cwd: request.cwd.to_string_lossy().to_string(),
