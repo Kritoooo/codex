@@ -11,9 +11,11 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.90
+      - uses: dtolnay/rust-toolchain@1.92.0
         with:
           targets: x86_64-unknown-linux-musl
+      - name: Ensure musl target (linux x64)
+        run: rustup target add --toolchain 1.92.0 x86_64-unknown-linux-musl
       - name: Install build deps
         run: |
           sudo apt-get update
@@ -36,9 +38,11 @@ jobs:
     runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.90
+      - uses: dtolnay/rust-toolchain@1.92.0
         with:
           targets: aarch64-unknown-linux-musl
+      - name: Ensure musl target (linux arm64)
+        run: rustup target add --toolchain 1.92.0 aarch64-unknown-linux-musl
       - name: Install build deps
         run: |
           sudo apt-get update
@@ -61,7 +65,7 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.90
+      - uses: dtolnay/rust-toolchain@1.92.0
         with:
           targets: aarch64-apple-darwin,x86_64-apple-darwin
       - name: Build codex (macOS arm64 + x64)
@@ -87,7 +91,7 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.90
+      - uses: dtolnay/rust-toolchain@1.92.0
         with:
           targets: x86_64-pc-windows-msvc
       - name: Build codex (windows x64)
