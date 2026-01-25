@@ -157,7 +157,11 @@ fn footer_lines(props: &FooterProps) -> Vec<Line<'static>> {
         if !unstyled {
             return line;
         }
-        let spans: Vec<_> = line.spans.into_iter().map(|span| span.dim()).collect();
+        let spans: Vec<_> = line
+            .spans
+            .into_iter()
+            .map(ratatui::prelude::Stylize::dim)
+            .collect();
         Line::from(spans)
     }
 
@@ -248,11 +252,14 @@ fn footer_lines(props: &FooterProps) -> Vec<Line<'static>> {
             if lines.is_empty() {
                 lines.push(status_line);
             } else if status_line_has_content {
-                let line = lines.last_mut().expect("footer lines is non-empty");
-                if line.width() > 0 {
-                    line.push_span(" · ".dim());
+                if let Some(line) = lines.last_mut() {
+                    if line.width() > 0 {
+                        line.push_span(" · ".dim());
+                    }
+                    line.extend(status_line.spans);
+                } else {
+                    lines.push(status_line);
                 }
-                line.extend(status_line.spans);
             }
         } else {
             lines.clear();

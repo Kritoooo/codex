@@ -697,14 +697,17 @@ async fn read_head_summary(path: &Path, head_limit: usize) -> io::Result<HeadTai
 
         match rollout_line.item {
             RolloutItem::SessionMeta(session_meta_line) => {
-                summary.source = Some(session_meta_line.meta.source.clone());
-                summary.model_provider = session_meta_line.meta.model_provider.clone();
-                summary.created_at = summary
-                    .created_at
-                    .clone()
-                    .or_else(|| Some(rollout_line.timestamp.clone()));
-                if let Ok(val) = serde_json::to_value(session_meta_line) {
-                    summary.head.push(val);
+                let is_first_meta = !summary.saw_session_meta;
+                if is_first_meta {
+                    summary.source = Some(session_meta_line.meta.source.clone());
+                    summary.model_provider = session_meta_line.meta.model_provider.clone();
+                    summary.created_at = summary
+                        .created_at
+                        .clone()
+                        .or_else(|| Some(rollout_line.timestamp.clone()));
+                    if let Ok(val) = serde_json::to_value(session_meta_line) {
+                        summary.head.push(val);
+                    }
                     summary.saw_session_meta = true;
                 }
             }

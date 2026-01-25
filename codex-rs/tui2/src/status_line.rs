@@ -142,11 +142,11 @@ async fn run_status_line_command(
         }
     };
 
-    if let Some(mut stdin) = child.stdin.take() {
-        if let Err(err) = stdin.write_all(&json).await {
-            warn!("status line command stdin write failed: {err}");
-            return StatusLineUpdate::Failed;
-        }
+    if let Some(mut stdin) = child.stdin.take()
+        && let Err(err) = stdin.write_all(&json).await
+    {
+        warn!("status line command stdin write failed: {err}");
+        return StatusLineUpdate::Failed;
     }
 
     let output = match timeout(timeout_duration, child.wait_with_output()).await {
@@ -178,7 +178,7 @@ async fn run_status_line_command(
     let line = stdout
         .lines()
         .next()
-        .map(|s| s.to_string())
+        .map(std::string::ToString::to_string)
         .filter(|s| !s.is_empty());
     StatusLineUpdate::Updated(line)
 }

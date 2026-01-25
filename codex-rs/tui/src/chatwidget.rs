@@ -33,6 +33,7 @@ use codex_ansi_escape::ansi_escape_line;
 use codex_app_server_protocol::AuthMode;
 use codex_backend_client::Client as BackendClient;
 use codex_core::config::Config;
+use codex_core::config::ConfigToml;
 use codex_core::config::ConstraintResult;
 use codex_core::config::types::Notifications;
 use codex_core::features::FEATURES;
@@ -1919,8 +1920,8 @@ impl ChatWidget {
         ));
 
         let mut widget = Self {
-            app_event_tx: app_event_tx.clone(),
-            frame_requester: frame_requester.clone(),
+            app_event_tx,
+            frame_requester,
             codex_op_tx,
             bottom_pane,
             active_cell,
@@ -2048,8 +2049,8 @@ impl ChatWidget {
         };
 
         let mut widget = Self {
-            app_event_tx: app_event_tx.clone(),
-            frame_requester: frame_requester.clone(),
+            app_event_tx,
+            frame_requester,
             codex_op_tx,
             bottom_pane,
             active_cell: None,
@@ -2334,6 +2335,9 @@ impl ChatWidget {
             }
             SlashCommand::Model => {
                 self.open_model_popup();
+            }
+            SlashCommand::Profile => {
+                self.open_profile_popup();
             }
             SlashCommand::Collab => {
                 if self.collaboration_modes_enabled() {
@@ -3182,6 +3186,86 @@ impl ChatWidget {
         self.open_model_popup_with_presets(presets);
     }
 
+    pub(crate) fn open_profile_popup(&mut self) {
+        if !self.is_session_configured() {
+            self.add_info_message(
+                "Profile switching is disabled until startup completes.".to_string(),
+                None,
+            );
+            return;
+        }
+
+        let merged = self.config.config_layer_stack.effective_config();
+        let config_toml: ConfigToml = match merged.try_into() {
+            Ok(config) => config,
+            Err(err) => {
+                self.add_error_message(format!("Failed to load profiles: {err}"));
+                return;
+            }
+        };
+
+        if config_toml.profiles.is_empty() {
+            self.add_info_message(
+                "No profiles are configured. Add profiles to config.toml first.".to_string(),
+                None,
+            );
+            return;
+        }
+
+        let mut profile_names: Vec<String> = config_toml.profiles.keys().cloned().collect();
+        profile_names.sort();
+
+        let current_profile = self.config.active_profile.as_deref();
+        let mut items = Vec::new();
+
+        let default_actions: Vec<SelectionAction> = vec![Box::new(|tx| {
+            tx.send(AppEvent::SwitchProfile { profile: None });
+        })];
+        items.push(SelectionItem {
+            name: "Default (no profile)".to_string(),
+            description: Some("Use top-level config settings.".to_string()),
+            is_current: current_profile.is_none(),
+            actions: default_actions,
+            dismiss_on_select: true,
+            ..Default::default()
+        });
+
+        for name in profile_names {
+            let profile = match config_toml.profiles.get(&name) {
+                Some(profile) => profile,
+                None => continue,
+            };
+            let description = Self::profile_description(profile, &config_toml);
+            let is_current = current_profile == Some(name.as_str());
+            let name_for_action = name.clone();
+            let actions: Vec<SelectionAction> = vec![Box::new(move |tx| {
+                tx.send(AppEvent::SwitchProfile {
+                    profile: Some(name_for_action.clone()),
+                });
+            })];
+
+            items.push(SelectionItem {
+                name,
+                description,
+                is_current,
+                actions,
+                dismiss_on_select: true,
+                ..Default::default()
+            });
+        }
+
+        let initial_selected_idx = items.iter().position(|item| item.is_current);
+        self.bottom_pane.show_selection_view(SelectionViewParams {
+            title: Some("Select Profile".to_string()),
+            footer_hint: Some(standard_popup_hint_line()),
+            items,
+            is_searchable: true,
+            search_placeholder: Some("Type to search profiles".to_string()),
+            initial_selected_idx,
+            ..Default::default()
+        });
+    }
+
     fn model_menu_header(&self, title: &str, subtitle: &str) -> Box<dyn Renderable> {
         let title = title.to_string();
         let subtitle = subtitle.to_string();
@@ -3219,6 +3303,34 @@ impl ChatWidget {
         }
 
         Some(trimmed.to_string())
+    }
+
+    fn profile_description(
+        profile: &codex_core::config::profile::ConfigProfile,
+        config_toml: &ConfigToml,
+    ) -> Option<String> {
+        let mut parts: Vec<String> = Vec::new();
+        if let Some(model) = profile.model.as_ref() {
+            parts.push(format!("model: {model}"));
+        }
+        if let Some(provider_id) = profile.model_provider.as_ref() {
+            let mut provider = format!("provider: {provider_id}");
+            if let Some(provider_info) = config_toml.model_providers.get(provider_id)
+                && let Some(base_url) = provider_info.base_url.as_ref()
+            {
+                provider.push_str(&format!(", base_url: {base_url}"));
+            }
+            parts.push(provider);
+        }
+        if let Some(base_url) = profile.chatgpt_base_url.as_ref() {
+            parts.push(format!("chatgpt_base_url: {base_url}"));
+        }
+
+        if parts.is_empty() {
+            None
+        } else {
+            Some(parts.join(" | "))
+        }
     }
 
     pub(crate) fn open_model_popup_with_presets(&mut self, presets: Vec<ModelPreset>) {

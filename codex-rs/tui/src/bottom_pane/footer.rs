@@ -136,7 +136,11 @@ fn footer_lines(props: &FooterProps) -> Vec<Line<'static>> {
         if !unstyled {
             return line;
         }
-        let spans: Vec<_> = line.spans.into_iter().map(|span| span.dim()).collect();
+        let spans: Vec<_> = line
+            .spans
+            .into_iter()
+            .map(ratatui::prelude::Stylize::dim)
+            .collect();
         Line::from(spans)
     }
     // Show the context indicator on the left, appended after the primary hint

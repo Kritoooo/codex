@@ -606,6 +606,8 @@ async fn run_ratatui_app(
         auth_manager,
         config,
         active_profile,
+        cli_kv_overrides.clone(),
+        overrides.clone(),
         prompt,
         images,
         session_selection,

@@ -28,9 +28,11 @@ use crate::tui;
 use crate::tui::TuiEvent;
 use crate::update_action::UpdateAction;
 use codex_ansi_escape::ansi_escape_line;
+use codex_core::ARCHIVED_SESSIONS_SUBDIR;
 use codex_core::AuthManager;
 use codex_core::ThreadManager;
 use codex_core::config::Config;
+use codex_core::config::ConfigOverrides;
 use codex_core::config::edit::ConfigEdit;
 use codex_core::config::edit::ConfigEditsBuilder;
 #[cfg(target_os = "windows")]
@@ -63,6 +65,7 @@ use ratatui::widgets::Wrap;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::collections::VecDeque;
+use std::io::ErrorKind;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -73,6 +76,7 @@ use std::time::Duration;
 use tokio::select;
 use tokio::sync::broadcast;
 use tokio::sync::mpsc::unbounded_channel;
+use toml::Value as TomlValue;
 
 const EXTERNAL_EDITOR_HINT: &str = "Save and close external editor to continue.";
 
@@ -118,6 +122,27 @@ fn session_summary(token_usage: TokenUsage, thread_id: Option<ThreadId>) -> Opti
         usage_line,
         resume_command,
     })
+}
+
+async fn archive_rollout_file(codex_home: &Path, rollout_path: &Path) -> Result<()> {
+    let Some(file_name) = rollout_path.file_name() else {
+        return Ok(());
+    };
+    let mut archive_dir = codex_home.to_path_buf();
+    archive_dir.push(ARCHIVED_SESSIONS_SUBDIR);
+    if rollout_path.starts_with(&archive_dir) {
+        return Ok(());
+    }
+    tokio::fs::create_dir_all(&archive_dir)
+        .await
+        .wrap_err("failed to create archived sessions directory")?;
+    let target = archive_dir.join(file_name);
+    match tokio::fs::rename(rollout_path, &target).await {
+        Ok(()) => Ok(()),
+        Err(err) if err.kind() == ErrorKind::NotFound => Ok(()),
+        Err(err) => Err(err)
+            .wrap_err_with(|| format!("failed to archive rollout {}", rollout_path.display())),
+    }
 }
 
 fn errors_for_cwd(cwd: &Path, response: &ListSkillsResponseEvent) -> Vec<SkillErrorInfo> {
@@ -332,6 +357,8 @@ pub(crate) struct App {
     /// Config is stored here so we can recreate ChatWidgets as needed.
     pub(crate) config: Config,
     pub(crate) active_profile: Option<String>,
+    pub(crate) cli_kv_overrides: Vec<(String, TomlValue)>,
+    pub(crate) config_overrides: ConfigOverrides,
 
     pub(crate) file_search: FileSearchManager,
 
@@ -410,6 +437,8 @@ impl App {
         auth_manager: Arc<AuthManager>,
         mut config: Config,
         active_profile: Option<String>,
+        cli_kv_overrides: Vec<(String, TomlValue)>,
+        config_overrides: ConfigOverrides,
         initial_prompt: Option<String>,
         initial_images: Vec<PathBuf>,
         session_selection: SessionSelection,
@@ -542,6 +571,8 @@ impl App {
             auth_manager: auth_manager.clone(),
             config,
             active_profile,
+            cli_kv_overrides,
+            config_overrides,
             file_search,
             enhanced_keys_supported,
             transcript_cells: Vec::new(),
@@ -1242,6 +1273,148 @@ impl App {
                     }
                 }
             }
+            AppEvent::SwitchProfile { profile } => {
+                if self.config_overrides.config_profile.is_some()
+                    || self
+                        .cli_kv_overrides
+                        .iter()
+                        .any(|(key, _)| key == "profile")
+                {
+                    self.chat_widget.add_error_message(
+                        "Profile is locked by CLI overrides. Restart without --profile or -c profile=... to switch profiles."
+                            .to_string(),
+                    );
+                    return Ok(AppRunControl::Continue);
+                }
+
+                let edits = if let Some(profile) = profile.as_deref() {
+                    vec![ConfigEdit::SetPath {
+                        segments: vec!["profile".to_string()],
+                        value: toml_edit::value(profile),
+                    }]
+                } else {
+                    vec![ConfigEdit::ClearPath {
+                        segments: vec!["profile".to_string()],
+                    }]
+                };
+
+                if let Err(err) = ConfigEditsBuilder::new(&self.config.codex_home)
+                    .with_edits(edits)
+                    .apply()
+                    .await
+                {
+                    self.chat_widget
+                        .add_error_message(format!("Failed to update config profile: {err}"));
+                    return Ok(AppRunControl::Continue);
+                }
+
+                let new_config = match Config::load_with_cli_overrides_and_harness_overrides(
+                    self.cli_kv_overrides.clone(),
+                    self.config_overrides.clone(),
+                )
+                .await
+                {
+                    Ok(config) => config,
+                    Err(err) => {
+                        self.chat_widget.add_error_message(format!(
+                            "Failed to reload config after profile switch: {err}"
+                        ));
+                        return Ok(AppRunControl::Continue);
+                    }
+                };
+
+                let summary =
+                    session_summary(self.chat_widget.token_usage(), self.chat_widget.thread_id());
+                let info_message = match profile.as_deref() {
+                    Some(name) => format!("Switched to profile {name}."),
+                    None => "Switched to default profile.".to_string(),
+                };
+
+                if let Some(path) = self.chat_widget.rollout_path() {
+                    match self
+                        .server
+                        .fork_thread(usize::MAX, new_config.clone(), path.clone())
+                        .await
+                    {
+                        Ok(forked) => {
+                            self.shutdown_current_thread().await;
+                            if let Err(err) =
+                                archive_rollout_file(&self.config.codex_home, &path).await
+                            {
+                                tracing::warn!(error = %err, "failed to archive previous session");
+                                self.chat_widget.add_error_message(format!(
+                                    "Failed to archive previous session: {err}"
+                                ));
+                            }
+                            self.config = new_config.clone();
+                            self.active_profile = new_config.active_profile.clone();
+                            let init = crate::chatwidget::ChatWidgetInit {
+                                config: new_config.clone(),
+                                frame_requester: tui.frame_requester(),
+                                app_event_tx: self.app_event_tx.clone(),
+                                initial_user_message: None,
+                                enhanced_keys_supported: self.enhanced_keys_supported,
+                                auth_manager: self.auth_manager.clone(),
+                                models_manager: self.server.get_models_manager(),
+                                feedback: self.feedback.clone(),
+                                is_first_run: false,
+                                model: new_config.model.clone(),
+                            };
+                            self.chat_widget = ChatWidget::new_from_existing(
+                                init,
+                                forked.thread,
+                                forked.session_configured,
+                            );
+                            if let Some(summary) = summary {
+                                let mut lines: Vec<Line<'static>> =
+                                    vec![summary.usage_line.clone().into()];
+                                if let Some(command) = summary.resume_command {
+                                    let spans = vec![
+                                        "To continue this session, run ".into(),
+                                        command.cyan(),
+                                    ];
+                                    lines.push(spans.into());
+                                }
+                                self.chat_widget.add_plain_history_lines(lines);
+                            }
+                            self.chat_widget.add_info_message(info_message, None);
+                        }
+                        Err(err) => {
+                            self.chat_widget
+                                .add_error_message(format!("Failed to switch profile: {err}"));
+                        }
+                    }
+                } else {
+                    self.shutdown_current_thread().await;
+                    self.config = new_config.clone();
+                    self.active_profile = new_config.active_profile.clone();
+                    let init = crate::chatwidget::ChatWidgetInit {
+                        config: new_config.clone(),
+                        frame_requester: tui.frame_requester(),
+                        app_event_tx: self.app_event_tx.clone(),
+                        initial_user_message: None,
+                        enhanced_keys_supported: self.enhanced_keys_supported,
+                        auth_manager: self.auth_manager.clone(),
+                        models_manager: self.server.get_models_manager(),
+                        feedback: self.feedback.clone(),
+                        is_first_run: false,
+                        model: new_config.model.clone(),
+                    };
+                    self.chat_widget = ChatWidget::new(init, self.server.clone());
+                    if let Some(summary) = summary {
+                        let mut lines: Vec<Line<'static>> = vec![summary.usage_line.clone().into()];
+                        if let Some(command) = summary.resume_command {
+                            let spans =
+                                vec!["To continue this session, run ".into(), command.cyan()];
+                            lines.push(spans.into());
+                        }
+                        self.chat_widget.add_plain_history_lines(lines);
+                    }
+                    self.chat_widget.add_info_message(info_message, None);
+                }
+
+                tui.frame_requester().schedule_frame();
+            }
             AppEvent::UpdateAskForApprovalPolicy(policy) => {
                 self.chat_widget.set_approval_policy(policy);
             }
@@ -1803,6 +1976,8 @@ mod tests {
             auth_manager,
             config,
             active_profile: None,
+            cli_kv_overrides: Vec::new(),
+            config_overrides: ConfigOverrides::default(),
             file_search,
             transcript_cells: Vec::new(),
             overlay: None,
@@ -1844,6 +2019,8 @@ mod tests {
                 auth_manager,
                 config,
                 active_profile: None,
+                cli_kv_overrides: Vec::new(),
+                config_overrides: ConfigOverrides::default(),
                 file_search,
                 transcript_cells: Vec::new(),
                 overlay: None,
