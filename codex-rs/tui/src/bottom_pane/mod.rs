@@ -36,6 +36,7 @@ use crossterm::event::KeyCode;
 use crossterm::event::KeyEvent;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
+use ratatui::text::Line;
 use std::time::Duration;
 
 mod app_link_view;

@@ -142,6 +142,11 @@ pub(crate) enum AppEvent {
         personality: Personality,
     },
 
+    /// Switch the active configuration profile and restart the session.
+    SwitchProfile {
+        profile: Option<String>,
+    },
+
     /// Open the reasoning selection popup after picking a model.
     OpenReasoningPopup {
         model: ModelPreset,
