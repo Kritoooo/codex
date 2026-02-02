@@ -617,9 +617,8 @@ fn apply_status_line(props: &FooterProps, lines: &mut Vec<Line<'static>>) {
         return;
     }
 
-    let status_line = dim_status_line_if_unstyled(
-        props.status_line.clone().unwrap_or_else(|| Line::from("")),
-    );
+    let status_line =
+        dim_status_line_if_unstyled(props.status_line.clone().unwrap_or_else(|| Line::from("")));
     let status_line_has_content = status_line.width() > 0;
 
     if props.status_line_show_hints {
@@ -1106,7 +1105,11 @@ mod tests {
                             );
                         }
                         SummaryLeft::Custom(line) => {
-                            render_footer_line(area, f.buffer_mut(), merge_status_line(&props, line));
+                            render_footer_line(
+                                area,
+                                f.buffer_mut(),
+                                merge_status_line(&props, line),
+                            );
                         }
                         SummaryLeft::None => {
                             if props.status_line_enabled {
@@ -1383,12 +1386,16 @@ mod tests {
             quit_shortcut_key: key_hint::ctrl(KeyCode::Char('c')),
             context_window_percent: None,
             context_window_used_tokens: None,
+            footer_hint_override: None,
+            status_line_enabled: false,
+            status_line_show_hints: true,
+            status_line: None,
         };
 
         snapshot_footer_with_mode_indicator(
             "footer_mode_indicator_wide",
             120,
-            props,
+            props.clone(),
             Some(CollaborationModeIndicator::Plan),
         );
 
@@ -1410,6 +1417,10 @@ mod tests {
             quit_shortcut_key: key_hint::ctrl(KeyCode::Char('c')),
             context_window_percent: None,
             context_window_used_tokens: None,
+            footer_hint_override: None,
+            status_line_enabled: false,
+            status_line_show_hints: true,
+            status_line: None,
         };
 
         snapshot_footer_with_mode_indicator(
