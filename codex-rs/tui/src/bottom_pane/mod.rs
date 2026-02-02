@@ -631,6 +631,21 @@ impl BottomPane {
         self.request_redraw();
     }
 
+    pub(crate) fn set_status_line_enabled(&mut self, enabled: bool) {
+        self.composer.set_status_line_enabled(enabled);
+        self.request_redraw();
+    }
+
+    pub(crate) fn set_status_line_show_hints(&mut self, show_hints: bool) {
+        self.composer.set_status_line_show_hints(show_hints);
+        self.request_redraw();
+    }
+
+    pub(crate) fn set_status_line(&mut self, line: Option<Line<'static>>) {
+        self.composer.set_status_line(line);
+        self.request_redraw();
+    }
+
     /// Show a generic list selection view with the provided items.
     pub(crate) fn show_selection_view(&mut self, params: list_selection_view::SelectionViewParams) {
         let view = list_selection_view::ListSelectionView::new(params, self.app_event_tx.clone());

@@ -115,12 +115,11 @@ use super::footer::can_show_left_with_context;
 use super::footer::context_window_line;
 use super::footer::esc_hint_mode;
 use super::footer::footer_height;
-use super::footer::footer_hint_items_width;
 use super::footer::footer_line_width;
 use super::footer::inset_footer_hint_area;
+use super::footer::merge_status_line;
 use super::footer::render_context_right;
 use super::footer::render_footer_from_props;
-use super::footer::render_footer_hint_items;
 use super::footer::render_footer_line;
 use super::footer::reset_mode_after_activity;
 use super::footer::single_line_footer_layout;
@@ -281,6 +280,9 @@ pub(crate) struct ChatComposer {
     footer_mode: FooterMode,
     footer_hint_override: Option<Vec<(String, String)>>,
     footer_flash: Option<FooterFlash>,
+    status_line_enabled: bool,
+    status_line_show_hints: bool,
+    status_line: Option<Line<'static>>,
     context_window_percent: Option<i64>,
     context_window_used_tokens: Option<i64>,
     skills: Option<Vec<SkillMetadata>>,
@@ -371,6 +373,9 @@ impl ChatComposer {
             footer_mode: FooterMode::ComposerEmpty,
             footer_hint_override: None,
             footer_flash: None,
+            status_line_enabled: false,
+            status_line_show_hints: true,
+            status_line: None,
             context_window_percent: None,
             context_window_used_tokens: None,
             skills: None,
@@ -458,7 +463,7 @@ impl ChatComposer {
         let footer_props = self.footer_props();
         let footer_hint_height = self
             .custom_footer_height()
-            .unwrap_or_else(|| footer_height(footer_props));
+            .unwrap_or_else(|| footer_height(&footer_props));
         let footer_spacing = Self::footer_spacing(footer_hint_height);
         let footer_total_height = footer_hint_height + footer_spacing;
         let popup_constraint = match &self.active_popup {
@@ -717,6 +722,18 @@ impl ChatComposer {
         self.footer_flash
             .as_ref()
             .is_some_and(|flash| Instant::now() < flash.expires_at)
+    }
+
+    pub(crate) fn set_status_line_enabled(&mut self, enabled: bool) {
+        self.status_line_enabled = enabled;
+    }
+
+    pub(crate) fn set_status_line_show_hints(&mut self, show_hints: bool) {
+        self.status_line_show_hints = show_hints;
+    }
+
+    pub(crate) fn set_status_line(&mut self, line: Option<Line<'static>>) {
+        self.status_line = line;
     }
 
     /// Replace the entire composer content with `text` and reset cursor.
@@ -2524,6 +2541,10 @@ impl ChatComposer {
             is_wsl,
             context_window_percent: self.context_window_percent,
             context_window_used_tokens: self.context_window_used_tokens,
+            footer_hint_override: self.footer_hint_override.clone(),
+            status_line_enabled: self.status_line_enabled,
+            status_line_show_hints: self.status_line_show_hints,
+            status_line: self.status_line.clone(),
         }
     }
 
@@ -2560,9 +2581,7 @@ impl ChatComposer {
         if self.footer_flash_visible() {
             return Some(1);
         }
-        self.footer_hint_override
-            .as_ref()
-            .map(|items| if items.is_empty() { 0 } else { 1 })
+        None
     }
 
     fn sync_popups(&mut self) {
@@ -3046,7 +3065,7 @@ impl Renderable for ChatComposer {
         let footer_props = self.footer_props();
         let footer_hint_height = self
             .custom_footer_height()
-            .unwrap_or_else(|| footer_height(footer_props));
+            .unwrap_or_else(|| footer_height(&footer_props));
         let footer_spacing = Self::footer_spacing(footer_hint_height);
         let footer_total_height = footer_hint_height + footer_spacing;
         const COLS_WITH_MARGIN: u16 = LIVE_PREFIX_COLS + 1;
@@ -3106,7 +3125,7 @@ impl ChatComposer {
                 let context_width = context_line.width() as u16;
                 let custom_height = self.custom_footer_height();
                 let footer_hint_height =
-                    custom_height.unwrap_or_else(|| footer_height(footer_props));
+                    custom_height.unwrap_or_else(|| footer_height(&footer_props));
                 let footer_spacing = Self::footer_spacing(footer_hint_height);
                 let hint_rect = if footer_spacing > 0 && footer_hint_height > 0 {
                     let [_, hint_rect] = Layout::vertical([
@@ -3123,11 +3142,9 @@ impl ChatComposer {
                         .as_ref()
                         .map(|flash| flash.line.width() as u16)
                         .unwrap_or(0)
-                } else if let Some(items) = self.footer_hint_override.as_ref() {
-                    footer_hint_items_width(items)
                 } else {
                     footer_line_width(
-                        footer_props,
+                        &footer_props,
                         self.collaboration_mode_indicator,
                         show_cycle_hint,
                         show_shortcuts_hint,
@@ -3161,7 +3178,7 @@ impl ChatComposer {
                         | FooterMode::ShortcutOverlay => None,
                     }
                 };
-                let show_context = if matches!(
+                let mut show_context = if matches!(
                     footer_props.mode,
                     FooterMode::EscHint
                         | FooterMode::QuitShortcutReminder
@@ -3174,6 +3191,9 @@ impl ChatComposer {
                         .map(|(_, show_context)| *show_context)
                         .unwrap_or(can_show_left_and_context)
                 };
+                if footer_props.status_line_enabled {
+                    show_context &= can_show_left_and_context;
+                }
 
                 if let Some((summary_left, _)) = single_line_layout {
                     match summary_left {
@@ -3181,7 +3201,7 @@ impl ChatComposer {
                             render_footer_from_props(
                                 hint_rect,
                                 buf,
-                                footer_props,
+                                &footer_props,
                                 self.collaboration_mode_indicator,
                                 show_cycle_hint,
                                 show_shortcuts_hint,
@@ -3189,21 +3209,31 @@ impl ChatComposer {
                             );
                         }
                         SummaryLeft::Custom(line) => {
-                            render_footer_line(hint_rect, buf, line);
+                            render_footer_line(
+                                hint_rect,
+                                buf,
+                                merge_status_line(&footer_props, line),
+                            );
                         }
-                        SummaryLeft::None => {}
+                        SummaryLeft::None => {
+                            if footer_props.status_line_enabled {
+                                render_footer_line(
+                                    hint_rect,
+                                    buf,
+                                    merge_status_line(&footer_props, Line::from("")),
+                                );
+                            }
+                        }
                     }
                 } else if self.footer_flash_visible() {
                     if let Some(flash) = self.footer_flash.as_ref() {
                         flash.line.render(inset_footer_hint_area(hint_rect), buf);
                     }
-                } else if let Some(items) = self.footer_hint_override.as_ref() {
-                    render_footer_hint_items(hint_rect, buf, items);
                 } else {
                     render_footer_from_props(
                         hint_rect,
                         buf,
-                        footer_props,
+                        &footer_props,
                         self.collaboration_mode_indicator,
                         show_cycle_hint,
                         show_shortcuts_hint,
@@ -3488,7 +3518,7 @@ mod tests {
         );
         setup(&mut composer);
         let footer_props = composer.footer_props();
-        let footer_lines = footer_height(footer_props);
+        let footer_lines = footer_height(&footer_props);
         let footer_spacing = ChatComposer::footer_spacing(footer_lines);
         let height = footer_lines + footer_spacing + 8;
         let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
@@ -7261,7 +7291,6 @@ mod tests {
         );
         assert_eq!(composer.attached_images.len(), 1);
     }
-
     #[test]
     fn input_disabled_ignores_keypresses_and_hides_cursor() {
         use crossterm::event::KeyCode;
