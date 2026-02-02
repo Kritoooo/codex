@@ -17,6 +17,8 @@ use std::time::Duration;
 use wildmatch::WildMatchPattern;
 
 use schemars::JsonSchema;
+use schemars::r#gen::SchemaGenerator;
+use schemars::schema::Schema;
 use serde::Deserialize;
 use serde::Deserializer;
 use serde::Serialize;
@@ -447,8 +449,7 @@ impl fmt::Display for NotificationMethod {
         }
     }
 }
-
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize, JsonSchema)]
 #[serde(untagged)]
 enum StatusLineCommand {
     String(String),
@@ -474,6 +475,7 @@ pub struct StatusLine {
     /// Command to execute to render the status line. Accepts either a string
     /// (shell-like) or an argv array.
     #[serde(deserialize_with = "deserialize_status_line_command")]
+    #[schemars(schema_with = "status_line_command_schema")]
     pub command: Vec<String>,
 
     /// Whether to append footer hints onto the status line instead of rendering
@@ -488,6 +490,10 @@ pub struct StatusLine {
     /// Timeout (ms) for the status line command.
     #[serde(default = "default_status_line_timeout_ms")]
     pub timeout_ms: u64,
+}
+
+fn status_line_command_schema(generator: &mut SchemaGenerator) -> Schema {
+    StatusLineCommand::json_schema(generator)
 }
 
 const fn default_status_line_update_interval_ms() -> u64 {
